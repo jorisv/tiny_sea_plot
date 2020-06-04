@@ -11,7 +11,7 @@ from pytinysea import (
 )
 from pytinysea.gsp import (
     State,
-    OpenList,
+    BinaryHeapOpenList,
     CloseList,
     NeighborsFinder,
     StateFactory,
@@ -38,7 +38,7 @@ def compute_shortest_path(
         boat_velocity_table.max_velocity(),
     )
 
-    open_list = OpenList()
+    open_list = BinaryHeapOpenList()
     open_list.insert(state_factory.build(start_nvector, start_time))
 
     close_list = CloseList()

@@ -15,7 +15,7 @@ setup(
     packages=["tinyseaplot"],
     entry_points={"console_scripts": ["tiny_sea_plot=tinyseaplot.__main__:main",]},
     install_requires=[
-        "pytinysea",
+        "pytinysea>=0.2.0",
         "bokeh>=2.0.0",
         "cfgrib",
         "xarray>=0.12.0",

@@ -484,8 +484,6 @@ class BokehApp(object):
         state_list = result_to_state_list(ret, close_list)
         if state_list:
             print(len(close_list.store()))
-            print(len(open_list.store()))
-            print(open_list.nr_update())
             self.result_state_source.data = self._to_state_data(state_list)
             self.close_state_source.data = self._to_state_data(
                 close_list.store().values()
