@@ -1,3 +1,4 @@
+import math
 import typing
 
 from pytinysea import (
@@ -30,9 +31,12 @@ def compute_shortest_path(
     start_nvector = NVector.from_lat_lon(*start_pos)
     end_nvector = NVector.from_lat_lon(*end_pos)
 
+    discret_distance_step = 1000.0
+    discret_distance_step_max_size = math.sqrt(2 * (discret_distance_step ** 2)) + 1.0
+
     state_factory = StateFactory(
         time_t(60.0 * 10.0),
-        meter_t(500.0),
+        meter_t(discret_distance_step),
         meter_t(6371.0 * 1e3),
         end_nvector,
         boat_velocity_table.max_velocity(),
@@ -44,7 +48,10 @@ def compute_shortest_path(
     close_list = CloseList()
 
     neighbors_finder = NeighborsFinder(
-        state_factory, time_world_map, boat_velocity_table, meter_t(1000.0)
+        state_factory,
+        time_world_map,
+        boat_velocity_table,
+        meter_t(discret_distance_step_max_size),
     )
     res = find_global_shortest_path(
         state_factory.build(end_nvector, time_t(0.0)),

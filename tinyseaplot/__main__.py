@@ -9,14 +9,16 @@ from bokeh.models import (
     ColumnDataSource,
     Slider,
     Button,
+    PreText,
     HoverTool,
     CheckboxGroup,
     TapTool,
     ColorBar,
     FixedTicker,
 )
+from bokeh.palettes import Set1_3
 from bokeh.plotting import figure
-from bokeh.layouts import column, row
+from bokeh.layouts import gridplot, layout, column
 from bokeh.tile_providers import CARTODBPOSITRON, get_provider
 
 # import pytinysea
@@ -47,6 +49,18 @@ WORLD_MAP_DISCRET_STEP = 0.1
 
 RESULT_STATE_POSITION_NAME = "result_position"
 CLOSE_STATE_POSITION_NAME = "close_position"
+
+SUCCESS_MESSAGE = """Solution found
+Computation time: {comp_time}
+Close state number: {close_state_number}
+Total distance: {total_dist:.2f}km
+Totat time: {total_time}
+"""
+
+FAILURE_MESSAGE = """Solution not found
+Computation time: {comp_time}s
+Close state number: {close_state_number}
+"""
 
 
 def check_path(str_path: str) -> Path:
@@ -98,11 +112,27 @@ class BokehApp(object):
         p.add_tile(tile_provider)
 
         # Path figure
-        p_path = figure(
+        p_path_vel = figure(
             x_axis_type="datetime",
             width=1280,
             height=128,
-            tools="xpan,xwheel_zoom",
+            tools="xpan,xwheel_zoom,reset",
+            active_drag="xpan",
+            active_scroll="xwheel_zoom",
+        )
+        p_path_dist = figure(
+            x_axis_type="datetime",
+            width=1280,
+            height=128,
+            tools="xpan,xwheel_zoom,reset",
+            active_drag="xpan",
+            active_scroll="xwheel_zoom",
+        )
+        p_path_score = figure(
+            x_axis_type="datetime",
+            width=1280,
+            height=128,
+            tools="xpan,xwheel_zoom,reset",
             active_drag="xpan",
             active_scroll="xwheel_zoom",
         )
@@ -112,7 +142,7 @@ class BokehApp(object):
 
         # Setup time slider
         self._setup_time_slider(self.time_world_map.x_space().nr_points())
-        self._update_wind(time_t(0))
+        self._update_wind(self.time_world_map.x_space().value(0))
 
         # Setup start and end selection display
         self._setup_start_end(p, start_pos, end_pos, lat_space, lon_space)
@@ -124,7 +154,7 @@ class BokehApp(object):
         self._setup_close_state(p)
 
         # Setup path display
-        self._setup_path(p, p_path)
+        self._setup_path(p, p_path_vel, p_path_dist, p_path_score)
 
         # Setup Hover tool
         self._setup_state_hover_tool(p)
@@ -139,21 +169,30 @@ class BokehApp(object):
         compute_button = Button(label="Compute")
         compute_button.on_click(self._compute)
 
+        # Setup text resume
+        self.compute_resume = PreText()
+
         # Setup layout
+        widgets = column(
+            [
+                self.time_slider,
+                self.start_x_slider,
+                self.start_y_slider,
+                self.end_x_slider,
+                self.end_y_slider,
+                compute_button,
+                self.state_display_checkbox,
+                self.compute_resume,
+            ]
+        )
         doc.add_root(
-            row(
+            layout(
                 [
-                    column([p, p_path]),
-                    column(
-                        [
-                            self.time_slider,
-                            self.start_x_slider,
-                            self.start_y_slider,
-                            self.end_x_slider,
-                            self.end_y_slider,
-                            compute_button,
-                            self.state_display_checkbox,
-                        ]
+                    [p, widgets],
+                    gridplot(
+                        [[p_path_vel], [p_path_dist], [p_path_score]],
+                        merge_tools=True,
+                        toolbar_location="right",
                     ),
                 ]
             )
@@ -346,8 +385,6 @@ class BokehApp(object):
 
     def _result_state_selected_cb(self, attr, old, new):
         if new:
-            time = time_t(self.result_state_source.data["raw_time"][new[0]])
-            self._update_wind(time)
             if self.shortest_path_state_list:
                 self._update_path(self.shortest_path_state_list)
 
@@ -362,7 +399,7 @@ class BokehApp(object):
             color="yellow",
             size=lon_to_web_mercator(0.00005),
             source=close_source,
-            name="close_position",
+            name=CLOSE_STATE_POSITION_NAME,
         )
         close_position.visible = False
 
@@ -378,32 +415,133 @@ class BokehApp(object):
             state_list = state_to_state_list(state, self.close_list)
             self._update_path(state_list)
 
-            self._update_wind(state.time())
-
-    def _setup_path(self, p, p_path):
+    def _setup_path(self, p, p_path_vel, p_path_dist, p_path_score):
         """Setup path diplay"""
         path_source = ColumnDataSource(
-            data={"x": [], "y": [], "time": [], "wind_vel": []}
+            data={
+                "x": [],
+                "y": [],
+                "time": [],
+                "raw_time": [],
+                "wind_vel": [],
+                "boat_vel": [],
+                "distance": [],
+                "g": [],
+                "h": [],
+                "f": [],
+            }
         )
-        p.line(x="x", y="y", color="red", source=path_source)
+        path_source.selected.on_change("indices", self._path_selected_cb)
 
-        p_path.circle(
-            x="time", y="wind_vel", legend_label="Wind velocity", source=path_source
+        p.line(x="x", y="y", width=2, color=Set1_3[0], source=path_source)
+        p.circle(x="x", y="y", width=2, color=Set1_3[1], source=path_source)
+
+        def plot_line_circle(plot, y_name: str, legend: str, color):
+            plot.circle(
+                x="time",
+                y=y_name,
+                legend_label=legend,
+                source=path_source,
+                width=2,
+                color=color,
+            )
+            renderer = plot.line(
+                x="time",
+                y=y_name,
+                legend_label=legend,
+                source=path_source,
+                width=2,
+                color=color,
+            )
+            return renderer
+
+        def setup_tools(plot, tooltips, renderer=None):
+            hover = HoverTool(
+                tooltips=tooltips,
+                formatters={"@time": "datetime"},
+                mode="vline",
+                point_policy="follow_mouse",
+            )
+            if renderer:
+                hover.renderers = [renderer]
+            plot.add_tools(hover)
+            plot.add_tools(TapTool())
+
+        # Plot velocity
+        vel_main_renderer = plot_line_circle(
+            p_path_vel, "wind_vel", "Wind velocity", Set1_3[0]
         )
-        p_path.line(
-            x="time", y="wind_vel", legend_label="Wind velocity", source=path_source
+        plot_line_circle(p_path_vel, "boat_vel", "Boat velocity", Set1_3[1])
+        p_path_vel.yaxis.axis_label = "Velocity (m/s)"
+        setup_tools(
+            p_path_vel,
+            [
+                ("time", "@time{%d-%T}"),
+                ("wind_vel", "@wind_vel"),
+                ("boat_vel", "@boat_vel"),
+            ],
+            vel_main_renderer,
         )
 
-        self.path_figure = p_path
+        # Plot distance
+        plot_line_circle(p_path_dist, "distance", "Distance", Set1_3[0])
+        p_path_dist.yaxis.axis_label = "distance (km)"
+        setup_tools(
+            p_path_dist, [("time", "@time{%d-%T}"), ("distance", "@distance"),],
+        )
+
+        # Plot score
+        plot_line_circle(p_path_score, "g", "g", Set1_3[0])
+        plot_line_circle(p_path_score, "h", "h", Set1_3[1])
+        score_main_renderer = plot_line_circle(p_path_score, "f", "f", Set1_3[2])
+        p_path_score.yaxis.axis_label = "Score"
+        setup_tools(
+            p_path_score,
+            [("time", "@time{%d-%T}"), ("g", "@g"), ("h", "@h"), ("f", "@f")],
+            score_main_renderer,
+        )
+
+        # Configure x_range
+        p_path_vel.x_range.range_padding = 0.1
+        p_path_dist.x_range = p_path_vel.x_range
+        p_path_score.x_range = p_path_vel.x_range
+
+        # Configure y_range
+        p_path_vel.y_range.range_padding = 0.1
+        p_path_dist.y_range.range_padding = 0.1
+        p_path_score.y_range.range_padding = 0.1
+
+        self.path_vel_figure = p_path_vel
+        self.path_dist_figure = p_path_dist
+        self.path_score_figure = p_path_score
         self.path_source = path_source
+
+    def _path_selected_cb(self, attr, old, new):
+        if new:
+            time = time_t(self.path_source.data["raw_time"][new[0]])
+        else:
+            time = time_t(self.path_source.data["raw_time"][0])
+        self._update_wind(time)
 
     def _update_path(self, state_list: typing.List[State]):
         """Update path display"""
+        self.path_source.selected.indices = []
         lat_lon = [s.position().to_lat_lon() for s in state_list]
+        times = [s.time().t for s in state_list]
+        distances = np.array(
+            [
+                s1.position().distance(s2.position()).t
+                for s1, s2 in zip(state_list[:-1], state_list[1:])
+            ]
+        )
+        cum_distances = np.concatenate(([0], np.cumsum(distances)))
+        boat_vel = np.concatenate(([0], distances / np.diff(times)))
+
         self.path_source.data = {
             "x": [lon_to_web_mercator(np.rad2deg(ll[1].t)) for ll in lat_lon],
             "y": [lat_to_web_mercator(np.rad2deg(ll[0].t)) for ll in lat_lon],
-            "time": [datetime.fromtimestamp(s.time().t) for s in state_list],
+            "raw_time": times,
+            "time": list(map(datetime.fromtimestamp, times)),
             "wind_vel": [
                 self.time_world_map[s.time()]
                 .world_grid()
@@ -411,11 +549,13 @@ class BokehApp(object):
                 .wind_velocity.t
                 for s in state_list
             ],
+            "boat_vel": boat_vel,
+            "distance": cum_distances / 1000.0,
+            "g": [s.g().t for s in state_list],
+            "h": [s.h().t for s in state_list],
+            "f": [s.f().t for s in state_list],
         }
-        self.path_figure.y_range.start = min(self.path_source.data["wind_vel"])
-        self.path_figure.y_range.end = max(self.path_source.data["wind_vel"])
-        self.path_figure.x_range.start = min(self.path_source.data["time"])
-        self.path_figure.x_range.end = max(self.path_source.data["time"])
+        self._update_wind(time_t(times[0]))
 
     def _setup_state_hover_tool(self, p):
         """Setup hover tool"""
@@ -469,6 +609,8 @@ class BokehApp(object):
             longitude_t(np.deg2rad(self.end_x_slider.value)),
         )
         start_time = self.time_world_map.x_space().value(self.wind_index)
+
+        before_comp_time = datetime.now()
         ret, open_list, close_list = compute_shortest_path(
             self.time_world_map,
             self.boat_velocity_table,
@@ -476,6 +618,7 @@ class BokehApp(object):
             end_pos,
             start_time,
         )
+        total_comp_time = datetime.now() - before_comp_time
         self.close_list = close_list
 
         self.result_state_source.selected.indices = []
@@ -483,17 +626,26 @@ class BokehApp(object):
 
         state_list = result_to_state_list(ret, close_list)
         if state_list:
-            print(len(close_list.store()))
             self.result_state_source.data = self._to_state_data(state_list)
             self.close_state_source.data = self._to_state_data(
                 close_list.store().values()
             )
             self._update_path(state_list)
             self.shortest_path_state_list = state_list
+            self.compute_resume.text = SUCCESS_MESSAGE.format(
+                comp_time=total_comp_time,
+                close_state_number=len(close_list.store()),
+                total_dist=self.path_source.data["distance"][-1],
+                total_time=(
+                    self.path_source.data["time"][-1] - self.path_source.data["time"][0]
+                ),
+            )
         else:
             self._update_path([])
             self.shortest_path_state_list = None
-            print("No result found")
+            self.compute_resume.text = SUCCESS_MESSAGE.format(
+                comp_time=total_comp_time, close_state_number=len(close_list.store()),
+            )
 
     def _to_state_data(self, state_list: typing.List[State]):
         """Fill result/close state data"""
