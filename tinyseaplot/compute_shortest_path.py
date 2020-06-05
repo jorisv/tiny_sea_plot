@@ -37,6 +37,7 @@ def compute_shortest_path(
     state_factory = StateFactory(
         time_t(60.0 * 10.0),
         meter_t(discret_distance_step),
+        start_time,
         meter_t(6371.0 * 1e3),
         end_nvector,
         boat_velocity_table.max_velocity(),
@@ -75,9 +76,8 @@ def result_to_state_list(
 def state_to_state_list(state: State, close_list: CloseList) -> typing.List[State]:
     cur_state = state
     state_list = [cur_state]
-    close_list_store = close_list.store()
     while cur_state.parent_state() is not None:
-        cur_state = close_list_store[cur_state.parent_state()]
+        cur_state = close_list[cur_state.parent_state()]
         state_list.append(cur_state)
 
     return list(reversed(state_list))

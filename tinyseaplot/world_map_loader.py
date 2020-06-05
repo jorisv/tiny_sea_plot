@@ -45,7 +45,7 @@ def create_map_space(
     lon_step = np.deg2rad(u_wind_table.GRIB_iDirectionIncrementInDegrees)
 
     nr_time = len(ds.step)
-    time_0 = float(ds.step[0]) / 1e9
+    time_0 = float(ds.step[0] + ds.time) / 1e9
     time_step = float(ds.step[1] - ds.step[0]) / 1e9
 
     lat_linear_space = LatitudeLinearSpace(

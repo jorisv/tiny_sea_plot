@@ -1,7 +1,7 @@
 import typing
 import argparse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 
@@ -53,6 +53,7 @@ CLOSE_STATE_POSITION_NAME = "close_position"
 SUCCESS_MESSAGE = """Solution found
 Computation time: {comp_time}
 Close state number: {close_state_number}
+Open state number: {open_state_number}
 Total distance: {total_dist:.2f}km
 Totat time: {total_time}
 """
@@ -60,6 +61,7 @@ Totat time: {total_time}
 FAILURE_MESSAGE = """Solution not found
 Computation time: {comp_time}s
 Close state number: {close_state_number}
+Open state number: {open_state_number}
 """
 
 
@@ -411,7 +413,7 @@ class BokehApp(object):
             discret_state = tuple(
                 map(int, self.close_state_source.data["discret_state"][new[0]].split())
             )
-            state = self.close_list.store()[discret_state]
+            state = self.close_list[discret_state]
             state_list = state_to_state_list(state, self.close_list)
             self._update_path(state_list)
 
@@ -541,7 +543,7 @@ class BokehApp(object):
             "x": [lon_to_web_mercator(np.rad2deg(ll[1].t)) for ll in lat_lon],
             "y": [lat_to_web_mercator(np.rad2deg(ll[0].t)) for ll in lat_lon],
             "raw_time": times,
-            "time": list(map(datetime.fromtimestamp, times)),
+            "time": [datetime.fromtimestamp(t, timezone.utc) for t in times],
             "wind_vel": [
                 self.time_world_map[s.time()]
                 .world_grid()
@@ -627,14 +629,13 @@ class BokehApp(object):
         state_list = result_to_state_list(ret, close_list)
         if state_list:
             self.result_state_source.data = self._to_state_data(state_list)
-            self.close_state_source.data = self._to_state_data(
-                close_list.store().values()
-            )
+            # self.close_state_source.data = self._to_state_data(close_list)
             self._update_path(state_list)
             self.shortest_path_state_list = state_list
             self.compute_resume.text = SUCCESS_MESSAGE.format(
                 comp_time=total_comp_time,
-                close_state_number=len(close_list.store()),
+                close_state_number=close_list.size(),
+                open_state_number=open_list.size(),
                 total_dist=self.path_source.data["distance"][-1],
                 total_time=(
                     self.path_source.data["time"][-1] - self.path_source.data["time"][0]
@@ -644,10 +645,14 @@ class BokehApp(object):
             self._update_path([])
             self.shortest_path_state_list = None
             self.compute_resume.text = SUCCESS_MESSAGE.format(
-                comp_time=total_comp_time, close_state_number=len(close_list.store()),
+                comp_time=total_comp_time,
+                close_state_number=close_list.size(),
+                open_state_number=open_list.size(),
             )
 
-    def _to_state_data(self, state_list: typing.List[State]):
+    def _to_state_data(
+        self, state_list: typing.Union[typing.List[State], typing.Iterable[State]]
+    ):
         """Fill result/close state data"""
         lat_lon = [s.position().to_lat_lon() for s in state_list]
         return {
@@ -655,7 +660,9 @@ class BokehApp(object):
             "y": [lat_to_web_mercator(np.rad2deg(ll[0].t)) for ll in lat_lon],
             "lat": [np.rad2deg(ll[0].t) for ll in lat_lon],
             "lon": [np.rad2deg(ll[1].t) for ll in lat_lon],
-            "time": [datetime.fromtimestamp(s.time().t) for s in state_list],
+            "time": [
+                datetime.fromtimestamp(s.time().t, timezone.utc) for s in state_list
+            ],
             "raw_time": [s.time().t for s in state_list],
             "g": [s.g().t for s in state_list],
             "h": [s.h().t for s in state_list],
