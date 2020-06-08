@@ -354,19 +354,20 @@ class BokehApp(object):
         """Update start stop position based on slider motion"""
         self.start_end_source.patch({pos[0]: [(pos[1], tr(new))]})
 
+    def _setup_state_source_data(self):
+        return {
+            "x": [],
+            "y": [],
+            "time": [],
+            "raw_time": [],
+            "g": [],
+            "h": [],
+            "f": [],
+            "discret_state": [],
+        }
+
     def _setup_state_source(self):
-        return ColumnDataSource(
-            data={
-                "x": [],
-                "y": [],
-                "time": [],
-                "raw_time": [],
-                "g": [],
-                "h": [],
-                "f": [],
-                "discret_state": [],
-            }
-        )
+        return ColumnDataSource(self._setup_state_source_data())
 
     def _setup_result_state(self, p):
         """Setup result state display"""
@@ -416,6 +417,11 @@ class BokehApp(object):
             state = self.close_list[discret_state]
             state_list = state_to_state_list(state, self.close_list)
             self._update_path(state_list)
+
+    def _compute_close_state_cb(self):
+        """Compute close list data source if it's not already computed"""
+        if self.close_list and not self.close_state_source.data["x"]:
+            self.close_state_source.data = self._to_state_data(self.close_list)
 
     def _setup_path(self, p, p_path_vel, p_path_dist, p_path_score):
         """Setup path diplay"""
@@ -587,18 +593,19 @@ class BokehApp(object):
         checkbox_group = CheckboxGroup(labels=["Result", "CloseList"], active=[0])
         checkbox_group.on_change("active", self._update_state_display_checkbox_cb)
         self.checkbox_group_show = [
-            (self.result_state_glyph,),
-            (self.close_state_glyph,),
+            (self.result_state_glyph, None),
+            (self.close_state_glyph, self._compute_close_state_cb),
         ]
 
         self.state_display_checkbox = checkbox_group
+        self.checkbox_group = checkbox_group
 
     def _update_state_display_checkbox_cb(self, attr, old, new):
         """Update result/close state display"""
-        for i, group in enumerate(self.checkbox_group_show):
-            visible = i in new
-            for g in group:
-                g.visible = visible
+        for i, (glyph, cb) in enumerate(self.checkbox_group_show):
+            if cb:
+                cb()
+            glyph.visible = i in new
 
     def _compute(self, new):
         """Compute shortest path"""
@@ -629,7 +636,10 @@ class BokehApp(object):
         state_list = result_to_state_list(ret, close_list)
         if state_list:
             self.result_state_source.data = self._to_state_data(state_list)
-            # self.close_state_source.data = self._to_state_data(close_list)
+            if 1 in self.checkbox_group.active:
+                self.close_state_source.data = self._to_state_data(self.close_list)
+            else:
+                self.close_state_source.data = self._setup_state_source_data()
             self._update_path(state_list)
             self.shortest_path_state_list = state_list
             self.compute_resume.text = SUCCESS_MESSAGE.format(
