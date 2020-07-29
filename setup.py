@@ -20,6 +20,7 @@ setup(
         "cfgrib",
         "xarray>=0.12.0",
         "shapely",
+        "gpxpy>=1.4.0",
     ],
     python_requires=">=3.6",
     zip_safe=False,

@@ -21,7 +21,6 @@ from bokeh.plotting import figure
 from bokeh.layouts import gridplot, layout, column
 from bokeh.tile_providers import CARTODBPOSITRON, get_provider
 
-# import pytinysea
 from pytinysea import (
     latitude_t,
     longitude_t,
@@ -43,6 +42,7 @@ from tinyseaplot.compute_shortest_path import (
     result_to_state_list,
     state_to_state_list,
 )
+from tinyseaplot.gpx_export import gpx_export
 
 
 WORLD_MAP_DISCRET_STEP = 0.1
@@ -651,6 +651,9 @@ class BokehApp(object):
                     self.path_source.data["time"][-1] - self.path_source.data["time"][0]
                 ),
             )
+            gpx = gpx_export(state_list)
+            with Path("/tmp/path.gpx").open("w") as f:
+                f.write(gpx.to_xml())
         else:
             self._update_path([])
             self.shortest_path_state_list = None
